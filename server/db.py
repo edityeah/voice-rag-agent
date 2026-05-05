@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from sqlalchemy import Column, DateTime, Integer, String, Text, ForeignKey, create_engine
+from sqlalchemy import Boolean, Column, DateTime, Integer, LargeBinary, String, Text, ForeignKey, create_engine
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 import os
 
@@ -59,6 +59,18 @@ class UsageEvent(Base):
     started_at = Column(DateTime, default=utcnow)
     duration_seconds = Column(Integer, default=0)
     user = relationship("User", back_populates="events")
+
+
+class Voice(Base):
+    __tablename__ = "voices"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String, nullable=False)
+    cartesia_voice_id = Column(String, nullable=False)
+    sample_data = Column(LargeBinary, nullable=True)
+    sample_mime = Column(String, nullable=True)
+    is_active = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=utcnow)
 
 
 class KbDocument(Base):

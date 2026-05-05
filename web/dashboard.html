@@ -33,22 +33,23 @@
   </section>
 
   <section class="card">
-    <h2>Your voice</h2>
-    <p id="voiceStatus" class="muted">No custom voice yet.</p>
+    <h2>Your voices</h2>
+    <p class="muted">Record clear samples and pick which one the agent should use.</p>
+
     <div class="row">
-      <button id="recBtn" class="btn">Record sample</button>
-      <button id="stopRecBtn" class="btn" disabled>Stop</button>
-      <input id="voiceName" placeholder="Voice name (e.g. My voice)" />
-      <button id="cloneBtn" class="btn btn-primary" disabled>Clone &amp; save</button>
+      <button id="recBtn" class="btn">⏺ Record sample</button>
+      <button id="stopRecBtn" class="btn" disabled>⏹ Stop</button>
+      <span id="recTimer" class="muted"></span>
     </div>
-    <audio id="recPreview" controls hidden></audio>
-    <div class="row" style="margin-top:12px">
-      <input id="previewText" placeholder="Type something to hear it" value="Hello! This is my custom voice." />
-      <button id="previewBtn" class="btn">Preview</button>
-      <button id="deleteVoiceBtn" class="btn btn-ghost">Delete voice</button>
+    <audio id="recPreview" controls hidden style="margin-top:10px;width:100%"></audio>
+    <div class="row" style="margin-top:10px">
+      <input id="voiceName" placeholder="Name this voice (e.g. My voice)" />
+      <button id="cloneBtn" class="btn btn-primary" disabled>Save voice</button>
     </div>
-    <audio id="previewAudio" controls hidden></audio>
-    <p class="hint">Tip: record about 10–15 seconds of clear speech in a quiet room.</p>
+    <p class="hint">Tip: record 10–15 seconds of clear speech in a quiet room.</p>
+
+    <h3>Saved voices</h3>
+    <ul id="voiceList" class="voice-list"></ul>
   </section>
 
   <section class="card span-2">

@@ -31,7 +31,7 @@ from .auth import (
     issue_session_token,
     upsert_google_user,
 )
-from .db import QUOTA_PERIOD_DAYS, QUOTA_SECONDS, KbDocument, UsageEvent, User, init_db
+from .db import QUOTA_PERIOD_DAYS, QUOTA_SECONDS, KbDocument, UsageEvent, User, Voice, init_db
 from .livekit_client import LIVEKIT_URL, make_join_token, update_room_metadata
 
 load_dotenv()
@@ -264,8 +264,30 @@ def kb_delete(
 
 
 # ---------- Voice management ----------
-@app.post("/api/voice/clone")
-async def clone_voice(
+def _voice_to_dict(v: Voice) -> dict:
+    return {
+        "id": v.id,
+        "name": v.name,
+        "cartesia_voice_id": v.cartesia_voice_id,
+        "is_active": v.is_active,
+        "has_sample": v.sample_data is not None,
+        "created_at": v.created_at.isoformat(),
+    }
+
+
+@app.get("/api/voices")
+def list_voices(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    rows = (
+        db.query(Voice)
+        .filter(Voice.user_id == user.id)
+        .order_by(Voice.created_at.desc())
+        .all()
+    )
+    return [_voice_to_dict(v) for v in rows]
+
+
+@app.post("/api/voices")
+async def create_voice(
     name: str = Form(...),
     sample: UploadFile = File(...),
     user: User = Depends(current_user),
@@ -274,38 +296,95 @@ async def clone_voice(
     audio = await sample.read()
     if len(audio) < 1024:
         raise HTTPException(status_code=400, detail="audio sample too short")
-    if user.custom_voice_id:
-        await cartesia_client.delete_voice(user.custom_voice_id)
     result = await cartesia_client.clone_voice(audio, sample.filename or "sample.wav", name)
     voice_id = result.get("id") or result.get("voice_id")
     if not voice_id:
         raise HTTPException(status_code=502, detail="Cartesia did not return a voice id")
-    user.custom_voice_id = voice_id
-    user.custom_voice_name = name
+
+    # First voice for this user becomes active automatically.
+    has_existing = db.query(Voice).filter(Voice.user_id == user.id).count() > 0
+    voice = Voice(
+        user_id=user.id,
+        name=name,
+        cartesia_voice_id=voice_id,
+        sample_data=audio,
+        sample_mime=sample.content_type or "audio/webm",
+        is_active=not has_existing,
+    )
+    db.add(voice)
+    # Keep User.custom_voice_id in sync for the agent.
+    if not has_existing:
+        user.custom_voice_id = voice_id
+        user.custom_voice_name = name
     db.commit()
-    return {"voice_id": voice_id, "name": name}
+    db.refresh(voice)
+    return _voice_to_dict(voice)
 
 
-@app.post("/api/voice/preview")
-async def preview_voice(
-    payload: dict, user: User = Depends(current_user)
+@app.post("/api/voices/{voice_id}/activate")
+def activate_voice(
+    voice_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)
 ):
-    voice_id = payload.get("voice_id") or user.custom_voice_id
-    text = payload.get("text") or "Hello! This is a quick preview of your voice."
-    if not voice_id:
-        raise HTTPException(status_code=400, detail="no voice configured")
-    audio = await cartesia_client.tts_preview(voice_id, text[:300])
+    voice = db.query(Voice).filter(Voice.id == voice_id, Voice.user_id == user.id).first()
+    if not voice:
+        raise HTTPException(status_code=404, detail="not found")
+    db.query(Voice).filter(Voice.user_id == user.id).update({Voice.is_active: False})
+    voice.is_active = True
+    user.custom_voice_id = voice.cartesia_voice_id
+    user.custom_voice_name = voice.name
+    db.commit()
+    return _voice_to_dict(voice)
+
+
+@app.get("/api/voices/{voice_id}/sample")
+def get_voice_sample(
+    voice_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)
+):
+    voice = db.query(Voice).filter(Voice.id == voice_id, Voice.user_id == user.id).first()
+    if not voice or not voice.sample_data:
+        raise HTTPException(status_code=404, detail="no sample stored")
+    return Response(content=voice.sample_data, media_type=voice.sample_mime or "audio/webm")
+
+
+@app.post("/api/voices/{voice_id}/preview")
+async def preview_voice(
+    voice_id: int,
+    payload: dict,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    voice = db.query(Voice).filter(Voice.id == voice_id, Voice.user_id == user.id).first()
+    if not voice:
+        raise HTTPException(status_code=404, detail="not found")
+    text = (payload.get("text") or "Hello! This is a quick preview of your cloned voice.")[:300]
+    audio = await cartesia_client.tts_preview(voice.cartesia_voice_id, text)
     return Response(content=audio, media_type="audio/wav")
 
 
-@app.delete("/api/voice")
+@app.delete("/api/voices/{voice_id}")
 async def delete_voice(
-    user: User = Depends(current_user), db: Session = Depends(get_db)
+    voice_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)
 ):
-    if user.custom_voice_id:
-        await cartesia_client.delete_voice(user.custom_voice_id)
-    user.custom_voice_id = None
-    user.custom_voice_name = None
+    voice = db.query(Voice).filter(Voice.id == voice_id, Voice.user_id == user.id).first()
+    if not voice:
+        raise HTTPException(status_code=404, detail="not found")
+    was_active = voice.is_active
+    try:
+        await cartesia_client.delete_voice(voice.cartesia_voice_id)
+    except Exception:
+        pass
+    db.delete(voice)
+    db.flush()
+    if was_active:
+        # Promote next available voice as active, or clear.
+        nxt = db.query(Voice).filter(Voice.user_id == user.id).order_by(Voice.created_at.desc()).first()
+        if nxt:
+            nxt.is_active = True
+            user.custom_voice_id = nxt.cartesia_voice_id
+            user.custom_voice_name = nxt.name
+        else:
+            user.custom_voice_id = None
+            user.custom_voice_name = None
     db.commit()
     return {"ok": True}
 

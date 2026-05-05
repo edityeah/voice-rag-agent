@@ -128,6 +128,26 @@ input:focus { outline: 2px solid var(--primary); outline-offset: 1px; }
 .muted { color: var(--muted); }
 .hint { color: var(--muted); font-size: 12px; margin-top: 10px; }
 
+/* Voice list */
+.voice-list { list-style: none; padding: 0; margin: 0; }
+.voice-row {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 10px;
+}
+.voice-row.active { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary) inset; }
+.voice-head { display: flex; align-items: center; gap: 10px; }
+.badge-active {
+  background: var(--primary); color: white;
+  padding: 2px 8px; border-radius: 999px;
+  font-size: 11px; letter-spacing: 0.3px; text-transform: uppercase;
+}
+.voice-empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
+.preview-text { flex: 1; min-width: 200px; }
+.voice-audio { width: 100%; margin-top: 10px; }
+
 /* Timer */
 .timer {
   font-size: 32px; font-variant-numeric: tabular-nums;

@@ -51,79 +51,141 @@ async function refreshUsage() {
     : rows.map(r => `<li><span>${new Date(r.started_at).toLocaleString()}</span><span>${fmt(r.duration_seconds)}</span></li>`).join("");
 }
 
-// ---------- Voice recording ----------
-let mediaRecorder = null, recChunks = [], recBlob = null;
+// ---------- Voice recording + library ----------
+let mediaRecorder = null, recChunks = [], recBlob = null, recStartTime = 0, recTimerHandle = null;
 const recBtn = document.getElementById("recBtn");
 const stopRecBtn = document.getElementById("stopRecBtn");
+const recTimer = document.getElementById("recTimer");
 const cloneBtn = document.getElementById("cloneBtn");
+const voiceListEl = document.getElementById("voiceList");
+const voiceNameInput = document.getElementById("voiceName");
 
 recBtn.onclick = async () => {
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  recChunks = [];
-  mediaRecorder = new MediaRecorder(stream);
-  mediaRecorder.ondataavailable = (e) => recChunks.push(e.data);
-  mediaRecorder.onstop = () => {
-    recBlob = new Blob(recChunks, { type: "audio/webm" });
-    const url = URL.createObjectURL(recBlob);
-    const audio = document.getElementById("recPreview");
-    audio.src = url;
-    audio.hidden = false;
-    cloneBtn.disabled = false;
-    stream.getTracks().forEach(t => t.stop());
-  };
-  mediaRecorder.start();
-  recBtn.disabled = true;
-  stopRecBtn.disabled = false;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    recChunks = [];
+    mediaRecorder = new MediaRecorder(stream);
+    mediaRecorder.ondataavailable = (e) => recChunks.push(e.data);
+    mediaRecorder.onstop = () => {
+      recBlob = new Blob(recChunks, { type: "audio/webm" });
+      const url = URL.createObjectURL(recBlob);
+      const audio = document.getElementById("recPreview");
+      audio.src = url;
+      audio.hidden = false;
+      cloneBtn.disabled = false;
+      stream.getTracks().forEach(t => t.stop());
+      clearInterval(recTimerHandle);
+    };
+    mediaRecorder.start();
+    recStartTime = Date.now();
+    recTimer.textContent = "Recording… 00:00";
+    recTimerHandle = setInterval(() => {
+      const s = Math.floor((Date.now() - recStartTime) / 1000);
+      recTimer.textContent = `Recording… ${fmt(s)}`;
+    }, 250);
+    recBtn.disabled = true;
+    stopRecBtn.disabled = false;
+  } catch (e) {
+    alert("Could not access microphone: " + e.message);
+  }
 };
 
 stopRecBtn.onclick = () => {
   mediaRecorder?.stop();
   recBtn.disabled = false;
   stopRecBtn.disabled = true;
+  recTimer.textContent = "Sample ready — name it and save.";
 };
 
 cloneBtn.onclick = async () => {
-  const name = document.getElementById("voiceName").value.trim() || "My voice";
+  const name = voiceNameInput.value.trim();
+  if (!name) {
+    alert("Give this voice a name first.");
+    return;
+  }
   if (!recBlob) return;
   cloneBtn.disabled = true;
-  cloneBtn.textContent = "Uploading…";
+  cloneBtn.textContent = "Saving…";
   try {
     const fd = new FormData();
     fd.append("name", name);
     fd.append("sample", recBlob, "sample.webm");
-    await api("/api/voice/clone", { method: "POST", body: fd });
+    await api("/api/voices", { method: "POST", body: fd });
+    voiceNameInput.value = "";
+    recBlob = null;
+    document.getElementById("recPreview").hidden = true;
+    recTimer.textContent = "";
+    await refreshVoices();
     await refreshMe();
-    cloneBtn.textContent = "Clone & save";
   } catch (e) {
-    alert("Clone failed: " + e.message);
-    cloneBtn.textContent = "Clone & save";
-    cloneBtn.disabled = false;
+    alert("Save failed: " + e.message);
+  } finally {
+    cloneBtn.textContent = "Save voice";
+    cloneBtn.disabled = recBlob == null;
   }
 };
 
-document.getElementById("previewBtn").onclick = async () => {
-  const text = document.getElementById("previewText").value.trim();
-  try {
-    const blob = await api("/api/voice/preview", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
+async function refreshVoices() {
+  const voices = await api("/api/voices");
+  if (voices.length === 0) {
+    voiceListEl.innerHTML = '<li class="voice-empty">No voices saved yet — record one above.</li>';
+    return;
+  }
+  voiceListEl.innerHTML = voices.map(v => `
+    <li class="voice-row ${v.is_active ? 'active' : ''}" data-id="${v.id}">
+      <div class="voice-head">
+        <strong>${v.name}</strong>
+        ${v.is_active ? '<span class="badge-active">In use</span>' : ''}
+      </div>
+      <div class="row" style="margin-top:8px">
+        ${v.has_sample ? `<button class="btn" data-act="sample">▶ Original sample</button>` : ''}
+        <input class="preview-text" placeholder="Type something to hear" value="Hello! This is my saved voice." />
+        <button class="btn" data-act="preview">🔊 Preview TTS</button>
+        ${v.is_active ? '' : `<button class="btn btn-primary" data-act="activate">Use this voice</button>`}
+        <button class="btn btn-ghost" data-act="delete">Delete</button>
+      </div>
+      <audio class="voice-audio" controls hidden></audio>
+    </li>
+  `).join("");
+
+  voiceListEl.querySelectorAll(".voice-row").forEach(row => {
+    const id = row.dataset.id;
+    const audioEl = row.querySelector(".voice-audio");
+    row.querySelectorAll("[data-act]").forEach(btn => {
+      btn.onclick = async () => {
+        const act = btn.dataset.act;
+        if (act === "sample") {
+          audioEl.src = `/api/voices/${id}/sample`;
+          audioEl.hidden = false;
+          audioEl.play().catch(() => {});
+        } else if (act === "preview") {
+          const text = row.querySelector(".preview-text").value.trim();
+          btn.disabled = true; btn.textContent = "…";
+          try {
+            const blob = await api(`/api/voices/${id}/preview`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ text }),
+            });
+            audioEl.src = URL.createObjectURL(blob);
+            audioEl.hidden = false;
+            audioEl.play();
+          } catch (e) { alert("Preview failed: " + e.message); }
+          finally { btn.disabled = false; btn.textContent = "🔊 Preview TTS"; }
+        } else if (act === "activate") {
+          await api(`/api/voices/${id}/activate`, { method: "POST" });
+          await refreshVoices();
+          await refreshMe();
+        } else if (act === "delete") {
+          if (!confirm("Delete this voice?")) return;
+          await api(`/api/voices/${id}`, { method: "DELETE" });
+          await refreshVoices();
+          await refreshMe();
+        }
+      };
     });
-    const audio = document.getElementById("previewAudio");
-    audio.src = URL.createObjectURL(blob);
-    audio.hidden = false;
-    audio.play();
-  } catch (e) {
-    alert("Preview failed: " + e.message);
-  }
-};
-
-document.getElementById("deleteVoiceBtn").onclick = async () => {
-  if (!confirm("Delete your custom voice?")) return;
-  await api("/api/voice", { method: "DELETE" });
-  document.getElementById("voiceStatus").textContent = "No custom voice yet.";
-  await refreshMe();
-};
+  });
+}
 
 // ---------- Knowledge base ----------
 const kbFiles = document.getElementById("kbFiles");
@@ -293,6 +355,7 @@ window.addEventListener("beforeunload", () => {
     await refreshMe();
     await refreshUsage();
     await refreshKb();
+    await refreshVoices();
   } catch (e) {
     console.error(e);
   }
