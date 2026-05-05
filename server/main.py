@@ -306,10 +306,19 @@ async def create_voice(
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ):
+    import httpx as _httpx
     audio = await sample.read()
     if len(audio) < 1024:
         raise HTTPException(status_code=400, detail="audio sample too short")
-    result = await cartesia_client.clone_voice(audio, sample.filename or "sample.wav", name)
+    try:
+        result = await cartesia_client.clone_voice(audio, sample.filename or "sample.wav", name)
+    except _httpx.HTTPStatusError as e:
+        if e.response.status_code == 402:
+            raise HTTPException(
+                status_code=402,
+                detail="Voice cloning needs a paid Cartesia plan. Add credits at play.cartesia.ai or contact the admin.",
+            )
+        raise HTTPException(status_code=502, detail=f"Cartesia error: {e.response.text[:200]}")
     voice_id = result.get("id") or result.get("voice_id")
     if not voice_id:
         raise HTTPException(status_code=502, detail="Cartesia did not return a voice id")
