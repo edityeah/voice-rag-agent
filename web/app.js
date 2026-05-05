@@ -36,10 +36,6 @@ async function refreshMe() {
   const reset = new Date(q.resets_at);
   document.getElementById("resetLabel").textContent = reset.toLocaleDateString();
 
-  if (state.me.voice?.id) {
-    document.getElementById("voiceStatus").textContent =
-      `Active voice: ${state.me.voice.name || "unnamed"} (${state.me.voice.id.slice(0, 8)}…)`;
-  }
   document.getElementById("callBtn").disabled = q.seconds_remaining <= 0;
 }
 
