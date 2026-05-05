@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Dashboard — Voice RAG Agent</title>
+<link rel="stylesheet" href="/static/styles.css" />
+<script src="https://cdn.jsdelivr.net/npm/livekit-client@2.5.7/dist/livekit-client.umd.min.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">Voice RAG Agent</div>
+  <div class="user">
+    <img id="avatar" alt="" />
+    <span id="userName"></span>
+    <form action="/auth/logout" method="post" style="display:inline">
+      <button class="btn btn-ghost" type="submit">Sign out</button>
+    </form>
+  </div>
+</header>
+
+<main class="grid">
+  <section class="card">
+    <h2>Usage this period</h2>
+    <div class="meter"><div id="meterFill" class="meter-fill"></div></div>
+    <div class="usage-stats">
+      <div><strong id="usedLabel">0:00</strong><span>used</span></div>
+      <div><strong id="remainingLabel">15:00</strong><span>remaining</span></div>
+      <div><strong id="resetLabel">—</strong><span>resets</span></div>
+    </div>
+    <h3>Recent sessions</h3>
+    <ul id="sessionList" class="sessions"></ul>
+  </section>
+
+  <section class="card">
+    <h2>Your voice</h2>
+    <p id="voiceStatus" class="muted">No custom voice yet.</p>
+    <div class="row">
+      <button id="recBtn" class="btn">Record sample</button>
+      <button id="stopRecBtn" class="btn" disabled>Stop</button>
+      <input id="voiceName" placeholder="Voice name (e.g. My voice)" />
+      <button id="cloneBtn" class="btn btn-primary" disabled>Clone &amp; save</button>
+    </div>
+    <audio id="recPreview" controls hidden></audio>
+    <div class="row" style="margin-top:12px">
+      <input id="previewText" placeholder="Type something to hear it" value="Hello! This is my custom voice." />
+      <button id="previewBtn" class="btn">Preview</button>
+      <button id="deleteVoiceBtn" class="btn btn-ghost">Delete voice</button>
+    </div>
+    <audio id="previewAudio" controls hidden></audio>
+    <p class="hint">Tip: record about 10–15 seconds of clear speech in a quiet room.</p>
+  </section>
+
+  <section class="card span-2">
+    <h2>Talk to your agent</h2>
+    <p class="muted">A new room spins up each call. Ends automatically when your remaining time runs out.</p>
+    <div class="row">
+      <button id="callBtn" class="btn btn-primary">Start call</button>
+      <button id="muteBtn" class="btn" disabled>🎤 Mute</button>
+      <button id="hangupBtn" class="btn" disabled>Hang up</button>
+      <span id="callStatus" class="muted"></span>
+    </div>
+    <div id="callTimer" class="timer">00:00</div>
+  </section>
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

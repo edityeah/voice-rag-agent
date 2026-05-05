@@ -1,0 +1,249 @@
+// Dashboard logic: usage, voice cloning, LiveKit call.
+
+const fmt = (s) => {
+  s = Math.max(0, Math.floor(s));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`;
+};
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, { credentials: "include", ...opts });
+  if (r.status === 401) {
+    window.location.href = "/";
+    return;
+  }
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({ detail: r.statusText }));
+    throw new Error(err.detail?.error || err.detail || r.statusText);
+  }
+  const ct = r.headers.get("content-type") || "";
+  return ct.includes("json") ? r.json() : r.blob();
+}
+
+let state = { me: null, room: null, currentSeconds: 0 };
+
+async function refreshMe() {
+  state.me = await api("/api/me");
+  document.getElementById("userName").textContent = state.me.name || state.me.email;
+  if (state.me.picture) document.getElementById("avatar").src = state.me.picture;
+
+  const q = state.me.quota;
+  const pct = Math.min(100, (q.seconds_used / q.limit_seconds) * 100);
+  document.getElementById("meterFill").style.width = pct + "%";
+  document.getElementById("usedLabel").textContent = fmt(q.seconds_used);
+  document.getElementById("remainingLabel").textContent = fmt(q.seconds_remaining);
+  const reset = new Date(q.resets_at);
+  document.getElementById("resetLabel").textContent = reset.toLocaleDateString();
+
+  if (state.me.voice?.id) {
+    document.getElementById("voiceStatus").textContent =
+      `Active voice: ${state.me.voice.name || "unnamed"} (${state.me.voice.id.slice(0, 8)}…)`;
+  }
+  document.getElementById("callBtn").disabled = q.seconds_remaining <= 0;
+}
+
+async function refreshUsage() {
+  const rows = await api("/api/usage");
+  const ul = document.getElementById("sessionList");
+  ul.innerHTML = rows.length === 0
+    ? '<li><span>No sessions yet</span></li>'
+    : rows.map(r => `<li><span>${new Date(r.started_at).toLocaleString()}</span><span>${fmt(r.duration_seconds)}</span></li>`).join("");
+}
+
+// ---------- Voice recording ----------
+let mediaRecorder = null, recChunks = [], recBlob = null;
+const recBtn = document.getElementById("recBtn");
+const stopRecBtn = document.getElementById("stopRecBtn");
+const cloneBtn = document.getElementById("cloneBtn");
+
+recBtn.onclick = async () => {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  recChunks = [];
+  mediaRecorder = new MediaRecorder(stream);
+  mediaRecorder.ondataavailable = (e) => recChunks.push(e.data);
+  mediaRecorder.onstop = () => {
+    recBlob = new Blob(recChunks, { type: "audio/webm" });
+    const url = URL.createObjectURL(recBlob);
+    const audio = document.getElementById("recPreview");
+    audio.src = url;
+    audio.hidden = false;
+    cloneBtn.disabled = false;
+    stream.getTracks().forEach(t => t.stop());
+  };
+  mediaRecorder.start();
+  recBtn.disabled = true;
+  stopRecBtn.disabled = false;
+};
+
+stopRecBtn.onclick = () => {
+  mediaRecorder?.stop();
+  recBtn.disabled = false;
+  stopRecBtn.disabled = true;
+};
+
+cloneBtn.onclick = async () => {
+  const name = document.getElementById("voiceName").value.trim() || "My voice";
+  if (!recBlob) return;
+  cloneBtn.disabled = true;
+  cloneBtn.textContent = "Uploading…";
+  try {
+    const fd = new FormData();
+    fd.append("name", name);
+    fd.append("sample", recBlob, "sample.webm");
+    await api("/api/voice/clone", { method: "POST", body: fd });
+    await refreshMe();
+    cloneBtn.textContent = "Clone & save";
+  } catch (e) {
+    alert("Clone failed: " + e.message);
+    cloneBtn.textContent = "Clone & save";
+    cloneBtn.disabled = false;
+  }
+};
+
+document.getElementById("previewBtn").onclick = async () => {
+  const text = document.getElementById("previewText").value.trim();
+  try {
+    const blob = await api("/api/voice/preview", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    const audio = document.getElementById("previewAudio");
+    audio.src = URL.createObjectURL(blob);
+    audio.hidden = false;
+    audio.play();
+  } catch (e) {
+    alert("Preview failed: " + e.message);
+  }
+};
+
+document.getElementById("deleteVoiceBtn").onclick = async () => {
+  if (!confirm("Delete your custom voice?")) return;
+  await api("/api/voice", { method: "DELETE" });
+  document.getElementById("voiceStatus").textContent = "No custom voice yet.";
+  await refreshMe();
+};
+
+// ---------- LiveKit call ----------
+let lkRoom = null, callStart = 0, timerHandle = null, agentJoined = false, agentWaitTimer = null;
+const callBtn = document.getElementById("callBtn");
+const hangupBtn = document.getElementById("hangupBtn");
+const muteBtn = document.getElementById("muteBtn");
+const callStatus = document.getElementById("callStatus");
+const callTimer = document.getElementById("callTimer");
+
+let micMuted = false;
+muteBtn.onclick = async () => {
+  if (!lkRoom) return;
+  micMuted = !micMuted;
+  await lkRoom.localParticipant.setMicrophoneEnabled(!micMuted);
+  muteBtn.textContent = micMuted ? "🔇 Unmute" : "🎤 Mute";
+  muteBtn.classList.toggle("btn-primary", micMuted);
+};
+
+callBtn.onclick = async () => {
+  callBtn.disabled = true;
+  callStatus.textContent = "Connecting…";
+  try {
+    const session = await api("/api/session/start", { method: "POST" });
+    state.room = session.room;
+    state.ttl = session.ttl_seconds;
+
+    const room = new LivekitClient.Room({ adaptiveStream: true, dynacast: true });
+    agentJoined = false;
+    room.on(LivekitClient.RoomEvent.TrackSubscribed, (track, _pub, participant) => {
+      if (track.kind === "audio") {
+        const el = track.attach();
+        el.autoplay = true;
+        el.playsInline = true;
+        document.body.appendChild(el);
+        el.play().catch(() => {});
+      }
+    });
+    room.on(LivekitClient.RoomEvent.ParticipantConnected, (p) => {
+      if (!agentJoined) {
+        agentJoined = true;
+        callStart = Date.now();
+        callStatus.textContent = `Connected — speak when ready (${p.identity})`;
+        callTimer.classList.add("live");
+        hangupBtn.disabled = false;
+        clearTimeout(agentWaitTimer);
+        timerHandle = setInterval(() => {
+          const elapsed = Math.floor((Date.now() - callStart) / 1000);
+          callTimer.textContent = fmt(elapsed);
+          if (elapsed >= state.ttl) endCall("Time limit reached");
+        }, 250);
+      }
+    });
+    await room.connect(session.url, session.token);
+    await room.localParticipant.setMicrophoneEnabled(true);
+    try { await room.startAudio(); } catch {}
+    lkRoom = room;
+
+    callStatus.textContent = "Waiting for agent to join…";
+    hangupBtn.disabled = false;
+    muteBtn.disabled = false;
+    micMuted = false;
+    muteBtn.textContent = "🎤 Mute";
+    muteBtn.classList.remove("btn-primary");
+    agentWaitTimer = setTimeout(() => {
+      if (!agentJoined) endCall("Agent did not join — not billed. Check Terminal 2.");
+    }, 15000);
+
+    room.on(LivekitClient.RoomEvent.Disconnected, () => endCall("Disconnected"));
+  } catch (e) {
+    callStatus.textContent = "";
+    callBtn.disabled = false;
+    alert("Could not start call: " + e.message);
+  }
+};
+
+hangupBtn.onclick = () => endCall("Ended");
+
+async function endCall(reason) {
+  if (!lkRoom) return;
+  const elapsed = agentJoined ? Math.floor((Date.now() - callStart) / 1000) : 0;
+  const room = state.room;
+  try { await lkRoom.disconnect(); } catch {}
+  lkRoom = null;
+  clearInterval(timerHandle);
+  clearTimeout(agentWaitTimer);
+  callTimer.classList.remove("live");
+  callStatus.textContent = reason;
+  hangupBtn.disabled = true;
+  muteBtn.disabled = true;
+  muteBtn.textContent = "🎤 Mute";
+  muteBtn.classList.remove("btn-primary");
+  callBtn.disabled = false;
+  try {
+    await api("/api/session/end", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ room, duration_seconds: elapsed, agent_joined: agentJoined }),
+    });
+  } catch {}
+  await refreshMe();
+  await refreshUsage();
+}
+
+window.addEventListener("beforeunload", () => {
+  if (lkRoom) {
+    const elapsed = agentJoined ? Math.floor((Date.now() - callStart) / 1000) : 0;
+    navigator.sendBeacon(
+      "/api/session/end",
+      new Blob([JSON.stringify({ room: state.room, duration_seconds: elapsed, agent_joined: agentJoined })],
+        { type: "application/json" })
+    );
+  }
+});
+
+// ---------- Boot ----------
+(async () => {
+  try {
+    await refreshMe();
+    await refreshUsage();
+  } catch (e) {
+    console.error(e);
+  }
+})();
