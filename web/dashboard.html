@@ -52,6 +52,17 @@
   </section>
 
   <section class="card span-2">
+    <h2>Your knowledge base</h2>
+    <p class="muted">Upload PDFs or text files. The agent will only answer based on these documents.</p>
+    <div class="row">
+      <input id="kbFiles" type="file" multiple accept=".pdf,.txt,.md" />
+      <button id="kbUploadBtn" class="btn btn-primary">Upload</button>
+      <span id="kbStatus" class="muted"></span>
+    </div>
+    <ul id="kbList" class="sessions" style="margin-top:14px"></ul>
+  </section>
+
+  <section class="card span-2">
     <h2>Talk to your agent</h2>
     <p class="muted">A new room spins up each call. Ends automatically when your remaining time runs out.</p>
     <div class="row">

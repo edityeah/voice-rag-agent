@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
 from . import cartesia_client
+from .extract import extract_text
 from .auth import (
     SESSION_COOKIE,
     SESSION_DAYS,
@@ -30,7 +31,7 @@ from .auth import (
     issue_session_token,
     upsert_google_user,
 )
-from .db import QUOTA_PERIOD_DAYS, QUOTA_SECONDS, UsageEvent, User, init_db
+from .db import QUOTA_PERIOD_DAYS, QUOTA_SECONDS, KbDocument, UsageEvent, User, init_db
 from .livekit_client import LIVEKIT_URL, make_join_token, update_room_metadata
 
 load_dotenv()
@@ -189,6 +190,77 @@ async def start_session(
         "ttl_seconds": ttl,
         "voice_id": voice_id,
     }
+
+
+# ---------- Knowledge base ----------
+MAX_FILE_BYTES = 10 * 1024 * 1024  # 10 MB per file
+
+
+@app.post("/api/kb/upload")
+async def kb_upload(
+    files: list[UploadFile] = File(...),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    added = []
+    skipped = []
+    for f in files:
+        data = await f.read()
+        if len(data) > MAX_FILE_BYTES:
+            skipped.append({"filename": f.filename, "reason": "too large (>10MB)"})
+            continue
+        try:
+            text = extract_text(f.filename or "file", data)
+        except ValueError as e:
+            skipped.append({"filename": f.filename, "reason": str(e)})
+            continue
+        if not text.strip():
+            skipped.append({"filename": f.filename, "reason": "no extractable text"})
+            continue
+        doc = KbDocument(
+            user_id=user.id,
+            filename=f.filename or "untitled",
+            content=text,
+            char_count=len(text),
+        )
+        db.add(doc)
+        db.flush()
+        added.append({"id": doc.id, "filename": doc.filename, "chars": doc.char_count})
+    db.commit()
+    return {"added": added, "skipped": skipped}
+
+
+@app.get("/api/kb")
+def kb_list(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    rows = (
+        db.query(KbDocument)
+        .filter(KbDocument.user_id == user.id)
+        .order_by(KbDocument.created_at.desc())
+        .all()
+    )
+    return [
+        {
+            "id": r.id,
+            "filename": r.filename,
+            "chars": r.char_count,
+            "uploaded_at": r.created_at.isoformat(),
+        }
+        for r in rows
+    ]
+
+
+@app.delete("/api/kb/{doc_id}")
+def kb_delete(
+    doc_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)
+):
+    doc = db.query(KbDocument).filter(
+        KbDocument.id == doc_id, KbDocument.user_id == user.id
+    ).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="not found")
+    db.delete(doc)
+    db.commit()
+    return {"ok": True}
 
 
 # ---------- Voice management ----------

@@ -125,6 +125,55 @@ document.getElementById("deleteVoiceBtn").onclick = async () => {
   await refreshMe();
 };
 
+// ---------- Knowledge base ----------
+const kbFiles = document.getElementById("kbFiles");
+const kbUploadBtn = document.getElementById("kbUploadBtn");
+const kbStatus = document.getElementById("kbStatus");
+const kbList = document.getElementById("kbList");
+
+async function refreshKb() {
+  const docs = await api("/api/kb");
+  kbList.innerHTML = docs.length === 0
+    ? '<li><span>No documents yet — upload to talk about them.</span></li>'
+    : docs.map(d => `
+        <li>
+          <span>${d.filename} <em class="muted">(${(d.chars / 1000).toFixed(1)}k chars)</em></span>
+          <button class="btn btn-ghost" data-del="${d.id}">Delete</button>
+        </li>
+      `).join("");
+  kbList.querySelectorAll("[data-del]").forEach(btn => {
+    btn.onclick = async () => {
+      if (!confirm(`Delete this document?`)) return;
+      await api(`/api/kb/${btn.dataset.del}`, { method: "DELETE" });
+      await refreshKb();
+    };
+  });
+}
+
+kbUploadBtn.onclick = async () => {
+  if (!kbFiles.files.length) {
+    kbStatus.textContent = "Pick at least one file.";
+    return;
+  }
+  kbUploadBtn.disabled = true;
+  kbStatus.textContent = "Uploading…";
+  try {
+    const fd = new FormData();
+    for (const f of kbFiles.files) fd.append("files", f);
+    const res = await api("/api/kb/upload", { method: "POST", body: fd });
+    const skipped = res.skipped?.length
+      ? ` (skipped: ${res.skipped.map(s => `${s.filename} — ${s.reason}`).join(", ")})`
+      : "";
+    kbStatus.textContent = `Added ${res.added.length} document(s)${skipped}`;
+    kbFiles.value = "";
+    await refreshKb();
+  } catch (e) {
+    kbStatus.textContent = "Upload failed: " + e.message;
+  } finally {
+    kbUploadBtn.disabled = false;
+  }
+};
+
 // ---------- LiveKit call ----------
 let lkRoom = null, callStart = 0, timerHandle = null, agentJoined = false, agentWaitTimer = null;
 const callBtn = document.getElementById("callBtn");
@@ -243,6 +292,7 @@ window.addEventListener("beforeunload", () => {
   try {
     await refreshMe();
     await refreshUsage();
+    await refreshKb();
   } catch (e) {
     console.error(e);
   }

@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from sqlalchemy import Column, DateTime, Integer, String, ForeignKey, create_engine
+from sqlalchemy import Column, DateTime, Integer, String, Text, ForeignKey, create_engine
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 import os
 
@@ -59,6 +59,16 @@ class UsageEvent(Base):
     started_at = Column(DateTime, default=utcnow)
     duration_seconds = Column(Integer, default=0)
     user = relationship("User", back_populates="events")
+
+
+class KbDocument(Base):
+    __tablename__ = "kb_documents"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    filename = Column(String, nullable=False)
+    content = Column(Text, nullable=False)
+    char_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=utcnow)
 
 
 def init_db():
