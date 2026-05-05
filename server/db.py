@@ -4,6 +4,9 @@ from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 import os
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./voice_agent.db")
+# Render gives postgres://, SQLAlchemy 2.x needs postgresql://
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 QUOTA_SECONDS = int(os.getenv("QUOTA_SECONDS", str(15 * 60)))
 QUOTA_PERIOD_DAYS = int(os.getenv("QUOTA_PERIOD_DAYS", "30"))
 
