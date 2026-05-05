@@ -44,12 +44,15 @@ def _parse_metadata(raw: Optional[str]) -> dict:
         return {}
 
 
-def _load_user_docs(user_id: int):
-    """Fetch this user's uploaded documents from the DB."""
+def _load_user_docs(user_id: int, doc_ids: Optional[list] = None):
+    """Fetch the user's documents (optionally filtered to a specific subset)."""
     from server.db import KbDocument, SessionLocal
     db = SessionLocal()
     try:
-        rows = db.query(KbDocument).filter(KbDocument.user_id == user_id).all()
+        q = db.query(KbDocument).filter(KbDocument.user_id == user_id)
+        if doc_ids:
+            q = q.filter(KbDocument.id.in_(doc_ids))
+        rows = q.all()
         return [
             Document(text=r.content, metadata={"source": r.filename}) for r in rows
         ]
@@ -57,14 +60,14 @@ def _load_user_docs(user_id: int):
         db.close()
 
 
-def _build_chat_engine(user_id: Optional[int]):
-    """Build a chat engine over the user's docs. Returns None if no docs."""
+def _build_chat_engine(user_id: Optional[int], doc_ids: Optional[list] = None):
     if not user_id:
         return None
-    docs = _load_user_docs(user_id)
+    docs = _load_user_docs(user_id, doc_ids)
     if not docs:
         return None
-    logger.info("Building index from %d documents for user %s", len(docs), user_id)
+    logger.info("Building index from %d documents for user %s (filter=%s)",
+                len(docs), user_id, doc_ids)
     index = VectorStoreIndex.from_documents(docs)
     return index.as_chat_engine(chat_mode=ChatMode.CONTEXT)
 
@@ -83,9 +86,10 @@ async def entrypoint(ctx: JobContext):
     metadata = _parse_metadata(ctx.room.metadata) or _parse_metadata(participant.metadata)
     user_id = metadata.get("user_id")
     voice_id = metadata.get("voice_id") or DEFAULT_VOICE_ID
-    logger.info("user_id=%s voice_id=%s", user_id, voice_id)
+    kb_doc_ids = metadata.get("kb_doc_ids") or []
+    logger.info("user_id=%s voice_id=%s kb_doc_ids=%s", user_id, voice_id, kb_doc_ids)
 
-    chat_engine = _build_chat_engine(user_id) if user_id else None
+    chat_engine = _build_chat_engine(user_id, kb_doc_ids) if user_id else None
 
     if chat_engine is not None:
         system_text = (

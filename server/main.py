@@ -149,7 +149,9 @@ def usage(user: User = Depends(current_user), db: Session = Depends(get_db)):
 # ---------- LiveKit token ----------
 @app.post("/api/session/start")
 async def start_session(
-    user: User = Depends(current_user), db: Session = Depends(get_db)
+    payload: dict = None,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
 ):
     user.roll_period_if_needed()
     remaining = user.remaining_seconds()
@@ -162,11 +164,22 @@ async def start_session(
             },
         )
 
+    requested_ids = (payload or {}).get("kb_doc_ids") or []
+    if requested_ids:
+        owned = {
+            r.id for r in db.query(KbDocument.id).filter(
+                KbDocument.user_id == user.id, KbDocument.id.in_(requested_ids)
+            )
+        }
+        kb_doc_ids = [i for i in requested_ids if i in owned]
+    else:
+        kb_doc_ids = []
+
     room_name = f"u{user.id}-{secrets.token_hex(4)}"
     voice_id = user.custom_voice_id or os.getenv(
         "CARTESIA_DEFAULT_VOICE_ID", "2b27d5e4-bcf9-496c-a54b-2ab64b0986b2"
     )
-    metadata = {"user_id": user.id, "voice_id": voice_id}
+    metadata = {"user_id": user.id, "voice_id": voice_id, "kb_doc_ids": kb_doc_ids}
 
     # TTL = remaining quota, capped at 15 minutes
     ttl = min(remaining, QUOTA_SECONDS)

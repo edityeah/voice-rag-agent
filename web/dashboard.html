@@ -20,18 +20,37 @@
 </header>
 
 <main class="grid">
-  <section class="card">
-    <h2>Usage this period</h2>
-    <div class="meter"><div id="meterFill" class="meter-fill"></div></div>
-    <div class="usage-stats">
-      <div><strong id="usedLabel">0:00</strong><span>used</span></div>
-      <div><strong id="remainingLabel">15:00</strong><span>remaining</span></div>
-      <div><strong id="resetLabel">—</strong><span>resets</span></div>
+
+  <!-- 1) Talk to your agent (hero) -->
+  <section class="card card-hero span-2">
+    <h2>Talk to your agent</h2>
+    <p class="muted">A new room spins up for each call. Ends automatically when your remaining time runs out.</p>
+    <div class="row" style="margin-top:14px">
+      <button id="callBtn" class="btn btn-primary">Start call</button>
+      <button id="muteBtn" class="btn" disabled>🎤 Mute</button>
+      <button id="hangupBtn" class="btn" disabled>Hang up</button>
+      <span id="callStatus" class="muted"></span>
     </div>
-    <h3>Recent sessions</h3>
-    <ul id="sessionList" class="sessions"></ul>
+    <div id="callTimer" class="timer">00:00</div>
   </section>
 
+  <!-- 2) Knowledge base -->
+  <section class="card">
+    <h2>Your knowledge base</h2>
+    <p class="muted">Upload PDFs or text files. Tick the ones the agent should reference for this call.</p>
+    <div class="row">
+      <input id="kbFiles" type="file" multiple accept=".pdf,.txt,.md" />
+      <button id="kbUploadBtn" class="btn btn-primary">Upload</button>
+      <span id="kbStatus" class="muted"></span>
+    </div>
+    <div class="row" style="margin-top:14px;gap:6px">
+      <button id="kbSelectAll" class="btn btn-ghost" type="button">Select all</button>
+      <button id="kbSelectNone" class="btn btn-ghost" type="button">Clear</button>
+    </div>
+    <ul id="kbList" class="kb-list" style="margin-top:10px"></ul>
+  </section>
+
+  <!-- 3) Voices -->
   <section class="card">
     <h2>Your voices</h2>
     <p class="muted">Record clear samples and pick which one the agent should use.</p>
@@ -52,28 +71,19 @@
     <ul id="voiceList" class="voice-list"></ul>
   </section>
 
+  <!-- 4) Usage (less prominent, at bottom) -->
   <section class="card span-2">
-    <h2>Your knowledge base</h2>
-    <p class="muted">Upload PDFs or text files. The agent will only answer based on these documents.</p>
-    <div class="row">
-      <input id="kbFiles" type="file" multiple accept=".pdf,.txt,.md" />
-      <button id="kbUploadBtn" class="btn btn-primary">Upload</button>
-      <span id="kbStatus" class="muted"></span>
+    <h2>Usage this period</h2>
+    <div class="meter"><div id="meterFill" class="meter-fill"></div></div>
+    <div class="usage-stats">
+      <div><strong id="usedLabel">0:00</strong><span>used</span></div>
+      <div><strong id="remainingLabel">15:00</strong><span>remaining</span></div>
+      <div><strong id="resetLabel">—</strong><span>resets</span></div>
     </div>
-    <ul id="kbList" class="sessions" style="margin-top:14px"></ul>
+    <h3>Recent sessions</h3>
+    <ul id="sessionList" class="sessions"></ul>
   </section>
 
-  <section class="card span-2">
-    <h2>Talk to your agent</h2>
-    <p class="muted">A new room spins up each call. Ends automatically when your remaining time runs out.</p>
-    <div class="row">
-      <button id="callBtn" class="btn btn-primary">Start call</button>
-      <button id="muteBtn" class="btn" disabled>🎤 Mute</button>
-      <button id="hangupBtn" class="btn" disabled>Hang up</button>
-      <span id="callStatus" class="muted"></span>
-    </div>
-    <div id="callTimer" class="timer">00:00</div>
-  </section>
 </main>
 
 <script src="/static/app.js"></script>

@@ -193,24 +193,52 @@ const kbUploadBtn = document.getElementById("kbUploadBtn");
 const kbStatus = document.getElementById("kbStatus");
 const kbList = document.getElementById("kbList");
 
+let selectedKbIds = new Set();
+
 async function refreshKb() {
   const docs = await api("/api/kb");
-  kbList.innerHTML = docs.length === 0
-    ? '<li><span>No documents yet — upload to talk about them.</span></li>'
-    : docs.map(d => `
-        <li>
-          <span>${d.filename} <em class="muted">(${(d.chars / 1000).toFixed(1)}k chars)</em></span>
-          <button class="btn btn-ghost" data-del="${d.id}">Delete</button>
-        </li>
-      `).join("");
-  kbList.querySelectorAll("[data-del]").forEach(btn => {
-    btn.onclick = async () => {
-      if (!confirm(`Delete this document?`)) return;
-      await api(`/api/kb/${btn.dataset.del}`, { method: "DELETE" });
+  if (docs.length === 0) {
+    kbList.innerHTML = '<li class="kb-empty">No documents yet — upload to talk about them.</li>';
+    selectedKbIds = new Set();
+    return;
+  }
+  // Default: select all on first load; preserve selection across refreshes.
+  if (selectedKbIds.size === 0) selectedKbIds = new Set(docs.map(d => d.id));
+  kbList.innerHTML = docs.map(d => `
+    <li class="kb-row ${selectedKbIds.has(d.id) ? 'selected' : ''}" data-id="${d.id}">
+      <input type="checkbox" ${selectedKbIds.has(d.id) ? 'checked' : ''} />
+      <span class="kb-name">${d.filename}</span>
+      <span class="kb-meta">${(d.chars / 1000).toFixed(1)}k chars</span>
+      <button class="btn btn-ghost" data-del="${d.id}">✕</button>
+    </li>
+  `).join("");
+  kbList.querySelectorAll(".kb-row").forEach(row => {
+    const id = parseInt(row.dataset.id);
+    const cb = row.querySelector('input[type="checkbox"]');
+    cb.onchange = () => {
+      if (cb.checked) { selectedKbIds.add(id); row.classList.add("selected"); }
+      else { selectedKbIds.delete(id); row.classList.remove("selected"); }
+    };
+    row.querySelector("[data-del]").onclick = async (e) => {
+      e.stopPropagation();
+      if (!confirm("Delete this document?")) return;
+      await api(`/api/kb/${id}`, { method: "DELETE" });
+      selectedKbIds.delete(id);
       await refreshKb();
     };
   });
 }
+
+document.getElementById("kbSelectAll").onclick = () => {
+  kbList.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+    cb.checked = true; cb.dispatchEvent(new Event("change"));
+  });
+};
+document.getElementById("kbSelectNone").onclick = () => {
+  kbList.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+    cb.checked = false; cb.dispatchEvent(new Event("change"));
+  });
+};
 
 kbUploadBtn.onclick = async () => {
   if (!kbFiles.files.length) {
@@ -257,7 +285,11 @@ callBtn.onclick = async () => {
   callBtn.disabled = true;
   callStatus.textContent = "Connecting…";
   try {
-    const session = await api("/api/session/start", { method: "POST" });
+    const session = await api("/api/session/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kb_doc_ids: Array.from(selectedKbIds) }),
+    });
     state.room = session.room;
     state.ttl = session.ttl_seconds;
 
