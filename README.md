@@ -10,7 +10,7 @@ dashboard.
 - **Google sign-in + per-user quota** — 15 min / 30 days, enforced at token mint and via LiveKit token TTL.
 - **Per-user knowledge base** — upload PDFs / `.txt` / `.md`; tick which docs the agent should reference for each call.
 - **Multi-voice library** — record multiple samples, name them, preview TTS, and switch the active voice per user.
-- **Free-tier deploy** — runs end-to-end on Neon + Render free + Hugging Face Space at $0/month (see [DEPLOY.md](DEPLOY.md)).
+- **Free-tier deploy** — runs end-to-end on Neon + Render free + Hugging Face Space at $0/month, see [DEPLOY.md](DEPLOY.md).
 
 ## Architecture
 
@@ -34,7 +34,7 @@ LiveKit Cloud  ◄──────  voice_agent_openai.py worker
 - **voice_agent.py** — original Ollama implementation (kept for offline use).
 - **web/** — single-page dashboard (`index.html`, `dashboard.html`, `app.js`, `styles.css`) — no build step.
 - **huggingface-space/** — Dockerfile + README for deploying the worker on a free HF Space.
-- **worker_runner.py** — entrypoint used by the HF Space container.
+- **worker_runner.py** — entrypoint used by the HF Space container (adds a health endpoint alongside the LiveKit worker).
 - **render.yaml** — Render Blueprint for the web backend.
 
 ## Local setup
@@ -49,7 +49,7 @@ pip install -r requirements.txt
 You need accounts for:
 - [OpenAI](https://platform.openai.com) — LLM + embeddings
 - [Cartesia](https://play.cartesia.ai) — TTS + voice cloning (voice cloning needs a paid plan; TTS works on free)
-- [AssemblyAI](https://www.assemblyai.com) — STT
+- [Deepgram](https://deepgram.com) — STT
 - [LiveKit Cloud](https://cloud.livekit.io) — WebRTC + agent worker
 - [Google Cloud Console](https://console.cloud.google.com/apis/credentials) — OAuth 2.0 client. Add `http://localhost:8000/auth/callback` as an authorized redirect URI.
 
@@ -86,9 +86,9 @@ accuracy add a LiveKit webhook:
 
 ## Deploying on the web
 
-The recommended path is the free-tier setup (Neon Postgres + Render free web + Hugging Face Space worker). Step-by-step instructions: [DEPLOY.md](DEPLOY.md).
+The recommended path is the free-tier setup: Neon Postgres + Render free web + Hugging Face Space worker. Step-by-step instructions: [DEPLOY.md](DEPLOY.md).
 
-Any container host works for the backend (Railway / Fly / Render paid). Set all env vars from `.env.example`, switch `DATABASE_URL` to Postgres, point `PUBLIC_URL` at your deployed domain, and add that domain's `/auth/callback` to your Google OAuth client. The worker process runs `python voice_agent_openai.py start` (or `python worker_runner.py` inside the HF Space container).
+Any container host also works — set all env vars from `.env.example`, switch `DATABASE_URL` to Postgres, point `PUBLIC_URL` at your deployed domain, and add that domain's `/auth/callback` to your Google OAuth client. The worker process is `python voice_agent_openai.py start` (or `python worker_runner.py` inside the HF Space container).
 
 ## Original (offline) implementation
 The Ollama-based [voice_agent.py](voice_agent.py) still works for fully local

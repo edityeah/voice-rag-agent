@@ -3,7 +3,7 @@ cartesia==1.4.0
 livekit==0.22.0
 livekit-agents==0.12.17
 livekit-api==0.8.2
-livekit-plugins-assemblyai==0.2.3
+livekit-plugins-deepgram==0.6.17
 livekit-plugins-cartesia==0.4.10
 livekit-plugins-llama-index==0.2.3
 livekit-plugins-openai==0.11.2
