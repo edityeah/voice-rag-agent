@@ -1,0 +1,33 @@
+# Fly.io config for the voice agent worker.
+#
+# This deploys voice_agent_openai.py as an always-on Fly Machine that
+# registers with LiveKit Cloud and joins user rooms when the web backend
+# (on Render) creates them. No HTTP traffic; the worker speaks outbound
+# WebSocket to LIVEKIT_URL.
+#
+# Replace `voice-rag-worker` with whatever name `fly launch` assigned you.
+# `primary_region` = "bom" (Mumbai). Switch to "sin", "fra", "iad" etc.
+# if you prefer another region; LiveKit dispatches across regions, so this
+# only affects the worker's network latency to your STT/LLM/TTS providers.
+
+app = "voice-rag-worker"
+primary_region = "bom"
+
+[build]
+  dockerfile = "Dockerfile"
+
+# Override the Dockerfile's CMD (which runs uvicorn for the web backend).
+# This Fly app runs the worker process instead.
+[processes]
+  app = "python voice_agent_openai.py start"
+
+# No [[services]] block on purpose — the worker doesn't accept inbound HTTP.
+# It only opens an outbound WebSocket to LiveKit Cloud.
+#
+# `auto_stop_machines` and `auto_start_machines` would scale to zero, which
+# breaks the worker registration. Keep them off (the default in this layout).
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 512
